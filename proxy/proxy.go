@@ -1,13 +1,19 @@
 package proxy
 
 import (
-	"errors"
-	"fmt"
 	"log"
 	"net"
+	"time"
 )
 
 type Error int
+
+type Mode int
+
+const (
+	Client Mode = iota
+	Server
+)
 
 type State int
 
@@ -22,7 +28,7 @@ const (
 
 type ProxyChannel struct {
 	Addr *net.UDPAddr
-	Buf []byte
+	Buf  []byte
 }
 
 type Proxy struct {
@@ -46,7 +52,7 @@ type Proxy struct {
 func (p *Proxy) MakeProxy(recvPort int, remoteReceiveAddr *net.UDPAddr) (int, error) {
 	// 天則クライアントの待ち受け及びリモートからの通信待ち受け
 	p.LocalRecvAddr = &net.UDPAddr{
-		IP: net.ParseIP("127.0.0.1"),
+		IP:   net.ParseIP("127.0.0.1"),
 		Port: recvPort,
 	}
 
@@ -57,7 +63,7 @@ func (p *Proxy) MakeProxy(recvPort int, remoteReceiveAddr *net.UDPAddr) (int, er
 	}
 	p.LocalRecvConn = localRecvConn
 	p.RemoteRecvAddr = remoteReceiveAddr
-	remoteRecvConn,err := net.ListenUDP("upd6", p.RemoteRecvAddr)
+	remoteRecvConn, err := net.ListenUDP("upd6", p.RemoteRecvAddr)
 	if err != nil {
 		log.Fatal(err)
 		return 1, err
@@ -71,99 +77,76 @@ func (p *Proxy) MakeProxy(recvPort int, remoteReceiveAddr *net.UDPAddr) (int, er
 	return 0, nil
 }
 
-func (p* Proxy) StartSession() {
+func (p *Proxy) StartClient(sendAddr *net.UDPAddr) {
+	if sendAddr == nil {
+		log.Fatal("Must be set remote addr")
+		return
+	}
 
-	stateChanged := false
+	p.RemoteRecvAddr = &net.UDPAddr{
+		IP:   net.ParseIP("::1"),
+		Port: sendAddr.Port + 1,
+	}
+
+	remoteRecvConn, err := net.ListenUDP("udp", p.RemoteRecvAddr)
+	if err != nil {
+		log.Fatal(err)
+		return
+	}
+	p.RemoteRecvConn = remoteRecvConn
+
+	p.RemoteSendAddr = sendAddr
+
+	remoteSendConn, err := net.Dial("udp", p.RemoteSendAddr.String())
+	if err != nil {
+		log.Fatal(err)
+		return
+	}
+	p.RemoteSendConn = remoteSendConn.(*net.UDPConn)
+
+	receivedPortInfoChannel := make(chan bool)
+
+	handshake := MakeHandshake(p.LocalRecvAddr)
+
+	go func() {
+		p.state = SendingClientPort
+		ticker := time.NewTicker(100 * time.Millisecond)
+		defer ticker.Stop()
+		bytes, err := EncodeToBytes(handshake)
+		if err != nil {
+			log.Fatal(err)
+			return
+		}
+		for {
+			select {
+			case <-receivedPortInfoChannel:
+				return
+			case <-ticker.C:
+				p.RemoteSendConn.Write(bytes)
+			}
+		}
+	}()
 
 	go func() {
 		for {
-			
-		}
-	}()
-
-	go func ()  {
-		
-	}()
-
-}
-
-func (h *Proxy) StartLocalServer(recvAddr *net.UDPAddr) (int, error) {
-	// 天則(クライアント)からのパケットが待ち受けられるようにする
-	// リモートの th123_tunnel にデータをリレーする
-	if h.LocalRecvAddr == nil {
-		return 1, errors.New("recv_addr was not set")
-	}
-
-	if h.receiving {
-		return 1, errors.New("already receiving")
-	}
-
-	h.RecvChannel = make(chan ProxyChannel)
-
-	h.LocalRecvAddr = recvAddr
-	recvConn, err := net.ListenUDP("udp", h.LocalRecvAddr)
-	h.LocalRecvConn = recvConn
-	if err != nil {
-		return 1, err
-	}
-
-	h.RemoteSendAddr = &net.UDPAddr{
-		IP: net.ParseIP("127.0.0.1"),
-		Port: recvAddr.Port + 1, // th123_tunnel 同士が通信するポートは天則のポート + 1 とする
-	}
-
-	remoteSendConn, err := net.Dial("udp", h.RemoteSendAddr.String())
-	if err != nil {
-		return 1, err
-	}
-	h.RemoteSendConn = remoteSendConn.(*net.UDPConn)
-	
-	h.receiving = true
-	for {
-		if !h.receiving {
-			break
-		}
-		buf := make([]byte, 64)
-		n, addr, err := h.LocalRecvConn.ReadFromUDP(buf)
-		if err != nil {
-			log.Fatal(err)
-			return 1, err
-		}
-		h.RecvChannel <- ProxyChannel { Addr: addr, Buf: buf }
-		if h.LocalSendAddr == nil && h.LocalSendConn == nil {
-			if addr.Port == h.LocalRecvAddr.Port {
-				continue
-			}
-			fmt.Printf("relay port detected %d\n",addr.Port)
-			h.LocalSendAddr = &net.UDPAddr{
-				IP: addr.IP,
-				Port: addr.Port,
-			}
-			conn, err := net.Dial("udp", h.LocalSendAddr.String())
+			defer func() { p.state = AcceptedClientPort }()
+			buf := make([]byte, 64)
+			_, _, err := p.RemoteRecvConn.ReadFromUDP(buf)
 			if err != nil {
 				log.Fatal(err)
-				return 1, err
+				return
 			}
-			h.LocalSendConn = conn.(*net.UDPConn)
-		}
-		if h.LocalSendConn != nil {
-			h.LocalSendConn.Write(buf[:n])
-		}
-	}
+			// 天則クライアントへ送信すべきポート番号を受信する
+			handshake, err := DecodeFromBytes(buf)
+			if err != nil {
+				log.Fatal(err)
+				return
+			}
 
-	return 0, nil
+			p.LocalSendAddr = HandShakeToUDPAddr(handshake)
+			close(receivedPortInfoChannel)
+		}
+	}()
 }
 
-func (h* Proxy) StopReceive() {
-	if h.LocalSendConn != nil {
-		h.LocalSendConn.Close()
-		h.LocalSendConn = nil
-	}
-	if h.LocalRecvConn != nil {
-		h.LocalRecvConn.Close()
-		h.LocalRecvConn = nil
-	}
-
-	h.receiving = false
-
-}
+// TODO サーバーモード側の処理を書く
