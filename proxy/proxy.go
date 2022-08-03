@@ -1,8 +1,10 @@
 package proxy
 
 import (
+	"fmt"
 	"log"
 	"net"
+	"strconv"
 	"time"
 )
 
@@ -32,15 +34,11 @@ type ProxyChannel struct {
 }
 
 type Proxy struct {
-	LocalSendAddr *net.UDPAddr
-	LocalSendConn *net.UDPConn
-	LocalRecvAddr *net.UDPAddr
-	LocalRecvConn *net.UDPConn
+	LocalAddr *net.UDPAddr
+	LocalConn *net.UDPConn
 
-	RemoteSendAddr *net.UDPAddr
-	RemoteSendConn *net.UDPConn
-	RemoteRecvAddr *net.UDPAddr
-	RemoteRecvConn *net.UDPConn
+	RemoteAddr *net.UDPAddr
+	RemoteConn *net.UDPConn
 
 	state State
 
@@ -49,80 +47,68 @@ type Proxy struct {
 	RecvChannel chan ProxyChannel
 }
 
-func (p *Proxy) MakeProxy(recvPort int, remoteReceiveAddr *net.UDPAddr) (int, error) {
-	// 天則クライアントの待ち受け及びリモートからの通信待ち受け
-	p.LocalRecvAddr = &net.UDPAddr{
+func New(recvClientPort int) (Proxy, error) {
+	p := Proxy{}
+	p.LocalAddr = &net.UDPAddr{
 		IP:   net.ParseIP("127.0.0.1"),
-		Port: recvPort,
+		Port: recvClientPort,
 	}
-
-	localRecvConn, err := net.ListenUDP("udp", p.LocalRecvAddr)
-	if err != nil {
-		log.Fatal(err)
-		return 1, err
-	}
-	p.LocalRecvConn = localRecvConn
-	p.RemoteRecvAddr = remoteReceiveAddr
-	remoteRecvConn, err := net.ListenUDP("upd6", p.RemoteRecvAddr)
-	if err != nil {
-		log.Fatal(err)
-		return 1, err
-	}
-
-	p.RemoteRecvConn = remoteRecvConn
 
 	p.state = Wait
 	p.receiving = false
 
-	return 0, nil
+	return p, nil
 }
 
-func (p *Proxy) StartClient(sendAddr *net.UDPAddr) {
-	if sendAddr == nil {
-		log.Fatal("Must be set remote addr")
-		return
-	}
 
-	p.RemoteRecvAddr = &net.UDPAddr{
-		IP:   net.ParseIP("::1"),
-		Port: sendAddr.Port + 1,
-	}
+func (p *Proxy) StartClient(sendAddrStr string) (chan bool, error) {
 
-	remoteRecvConn, err := net.ListenUDP("udp", p.RemoteRecvAddr)
+	// 天則クライアントの待ち受け及びリモートからの通信待ち受け
+localConn, err := net.ListenUDP("udp", p.LocalAddr)
 	if err != nil {
-		log.Fatal(err)
-		return
+		return nil, err
 	}
-	p.RemoteRecvConn = remoteRecvConn
+	p.LocalConn = localConn
 
-	p.RemoteSendAddr = sendAddr
+	fmt.Println("start local server")
 
-	remoteSendConn, err := net.Dial("udp", p.RemoteSendAddr.String())
+	sendAddr, err := parseIP(sendAddrStr)
 	if err != nil {
-		log.Fatal(err)
-		return
+		return nil, err
 	}
-	p.RemoteSendConn = remoteSendConn.(*net.UDPConn)
+	p.RemoteAddr = sendAddr
+
+	remoteSendConn, err := net.Dial("udp", p.RemoteAddr.String())
+	fmt.Printf("Remote send:%v\n", p.RemoteAddr.String())
+	if err != nil {
+		return nil, err
+	}
+	fmt.Println("start remote client")
+
+	p.RemoteConn = remoteSendConn.(*net.UDPConn)
 
 	receivedPortInfoChannel := make(chan bool)
 
-	handshake := MakeHandshake(p.LocalRecvAddr)
+	handshake := MakeHandshake(p.LocalAddr)
 
+	p.state = SendingClientPort
 	go func() {
-		p.state = SendingClientPort
 		ticker := time.NewTicker(100 * time.Millisecond)
 		defer ticker.Stop()
 		bytes, err := EncodeToBytes(handshake)
+		fmt.Printf("%dbytes \n", len(bytes))
 		if err != nil {
 			log.Fatal(err)
 			return
 		}
 		for {
 			select {
-			case <-receivedPortInfoChannel:
-				return
 			case <-ticker.C:
-				p.RemoteSendConn.Write(bytes)
+				fmt.Println("write")
+				p.RemoteConn.Write(bytes)
+			case <-receivedPortInfoChannel:
+				fmt.Println("end")
+				return
 			}
 		}
 	}()
@@ -130,23 +116,54 @@ func (p *Proxy) StartClient(sendAddr *net.UDPAddr) {
 	go func() {
 		for {
 			defer func() { p.state = AcceptedClientPort }()
-			buf := make([]byte, 64)
-			_, _, err := p.RemoteRecvConn.ReadFromUDP(buf)
-			if err != nil {
-				log.Fatal(err)
-				return
-			}
+			buf := make([]byte, 256)
 			// 天則クライアントへ送信すべきポート番号を受信する
+			for {
+				n, err := p.RemoteConn.Read(buf)
+				if err != nil {
+					log.Fatal(err)
+					return
+				}
+				fmt.Printf("%d\n", n)
+				if n > 0 {
+					break
+				}
+			}
+
 			handshake, err := DecodeFromBytes(buf)
 			if err != nil {
 				log.Fatal(err)
 				return
 			}
 
-			p.LocalSendAddr = HandShakeToUDPAddr(handshake)
+			p.LocalAddr = HandShakeToUDPAddr(handshake)
+			fmt.Println("close chann")
 			close(receivedPortInfoChannel)
 		}
 	}()
+
+	return receivedPortInfoChannel, nil
 }
 
 // TODO サーバーモード側の処理を書く
+
+
+func parseIP(addrStr string) (*net.UDPAddr, error) {
+	ip, portStr, err := net.SplitHostPort(addrStr)
+
+	if err != nil {
+		return nil, err
+	}
+
+	port, err := strconv.ParseInt(portStr, 10, 16)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &net.UDPAddr{
+		IP: net.ParseIP(ip),
+		Port: int(port),
+	}, nil
+
+}
