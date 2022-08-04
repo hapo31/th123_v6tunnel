@@ -2,15 +2,15 @@ package proxy
 
 import (
 	"fmt"
-	"log"
 	"net"
 	"strconv"
-	"time"
 )
 
 type Error int
 
 type Mode int
+
+const BUFFER_SIZE = 128
 
 const (
 	Client Mode = iota
@@ -44,7 +44,9 @@ type Proxy struct {
 
 	receiving bool
 
-	RecvChannel chan ProxyChannel
+	RecvChannel  chan ProxyChannel
+	ErrorChannel chan error
+	AbortChannel chan bool
 }
 
 func New(recvClientPort int) (Proxy, error) {
@@ -54,99 +56,60 @@ func New(recvClientPort int) (Proxy, error) {
 		Port: recvClientPort,
 	}
 
+	p.ErrorChannel = make(chan error)
 	p.state = Wait
 	p.receiving = false
 
 	return p, nil
 }
 
-
 func (p *Proxy) StartClient(sendAddrStr string) (chan bool, error) {
-
 	// 天則クライアントの待ち受け及びリモートからの通信待ち受け
-localConn, err := net.ListenUDP("udp", p.LocalAddr)
+	localConn, err := net.ListenUDP("udp", p.LocalAddr)
 	if err != nil {
 		return nil, err
 	}
-	p.LocalConn = localConn
 
 	fmt.Println("start local server")
 
-	sendAddr, err := parseIP(sendAddrStr)
+	remoteAddr, err := parseIP(sendAddrStr)
 	if err != nil {
 		return nil, err
 	}
-	p.RemoteAddr = sendAddr
 
-	remoteSendConn, err := net.Dial("udp", p.RemoteAddr.String())
-	fmt.Printf("Remote send:%v\n", p.RemoteAddr.String())
+	remoteConn, err := net.Dial("udp", remoteAddr.String())
+	fmt.Printf("Remote send:%v\n", remoteAddr.String())
 	if err != nil {
 		return nil, err
 	}
 	fmt.Println("start remote client")
 
-	p.RemoteConn = remoteSendConn.(*net.UDPConn)
+	abortChan, _ := passThroughPacket(remoteConn.(*net.UDPConn), localConn)
 
-	receivedPortInfoChannel := make(chan bool)
+	return abortChan, nil
 
-	handshake := MakeHandshake(p.LocalAddr)
-
-	p.state = SendingClientPort
-	go func() {
-		ticker := time.NewTicker(100 * time.Millisecond)
-		defer ticker.Stop()
-		bytes, err := EncodeToBytes(handshake)
-		fmt.Printf("%dbytes \n", len(bytes))
-		if err != nil {
-			log.Fatal(err)
-			return
-		}
-		for {
-			select {
-			case <-ticker.C:
-				fmt.Println("write")
-				p.RemoteConn.Write(bytes)
-			case <-receivedPortInfoChannel:
-				fmt.Println("end")
-				return
-			}
-		}
-	}()
-
-	go func() {
-		for {
-			defer func() { p.state = AcceptedClientPort }()
-			buf := make([]byte, 256)
-			// 天則クライアントへ送信すべきポート番号を受信する
-			for {
-				n, err := p.RemoteConn.Read(buf)
-				if err != nil {
-					log.Fatal(err)
-					return
-				}
-				fmt.Printf("%d\n", n)
-				if n > 0 {
-					break
-				}
-			}
-
-			handshake, err := DecodeFromBytes(buf)
-			if err != nil {
-				log.Fatal(err)
-				return
-			}
-
-			p.LocalAddr = HandShakeToUDPAddr(handshake)
-			fmt.Println("close chann")
-			close(receivedPortInfoChannel)
-		}
-	}()
-
-	return receivedPortInfoChannel, nil
 }
 
-// TODO サーバーモード側の処理を書く
+func (p *Proxy) StartServer(proxyPort int) (chan bool, error) {
+	remoteAddr, err := parseIP(fmt.Sprintf("[::1]:%d", proxyPort))
+	if err != nil {
+		return nil, err
+	}
 
+	remoteConn, err := net.ListenUDP("udp", remoteAddr)
+	if err != nil {
+		return nil, err
+	}
+
+	localConn, err := net.Dial("udp", p.LocalAddr.String())
+	if err != nil {
+		return nil, err
+	}
+
+	abortChan, _ := passThroughPacket(remoteConn, localConn.(*net.UDPConn))
+
+	return abortChan, nil
+}
 
 func parseIP(addrStr string) (*net.UDPAddr, error) {
 	ip, portStr, err := net.SplitHostPort(addrStr)
@@ -162,8 +125,56 @@ func parseIP(addrStr string) (*net.UDPAddr, error) {
 	}
 
 	return &net.UDPAddr{
-		IP: net.ParseIP(ip),
+		IP:   net.ParseIP(ip),
 		Port: int(port),
 	}, nil
 
+}
+
+func passThroughPacket(remoteConn *net.UDPConn, localConn *net.UDPConn) (chan bool, chan error) {
+	recvTunnelChan := make(chan *net.UDPAddr)
+	abortChan := make(chan bool)
+	errorChan := make(chan error)
+
+	go func() {
+		buf := make([]byte, BUFFER_SIZE)
+		_, err := remoteConn.Read(buf)
+		if err != nil {
+			errorChan <- err
+			return
+		}
+
+		recvAddr := remoteConn.RemoteAddr()
+		recvTunnelChan <- recvAddr.(*net.UDPAddr)
+		// リモートからデータ読んでローカルへ送信
+		for {
+			_, addr, err := remoteConn.ReadFromUDP(buf)
+			if err != nil {
+				errorChan <- err
+				return
+			}
+			localConn.WriteToUDP(buf, addr)
+		}
+	}()
+
+	go func() {
+		addr := <-recvTunnelChan
+		conn, err := net.ListenUDP("udp", addr)
+		if err != nil {
+			errorChan <- err
+			return
+		}
+		for {
+			// ローカルからデータ読んでリモートへ送信
+			buf := make([]byte, BUFFER_SIZE)
+			_, addr, err := conn.ReadFromUDP(buf)
+			if err != nil {
+				errorChan <- err
+				return
+			}
+			remoteConn.WriteToUDP(buf, addr)
+		}
+	}()
+
+	return abortChan, errorChan
 }
