@@ -152,13 +152,13 @@ func passThroughPacket(remoteConn *net.UDPConn, localConn *net.UDPConn, recvRemo
 		buf := make([]byte, BUFFER_SIZE)
 		// リモートからデータ読んでローカルへ送信
 		for {
-			len, _, err := remoteConn.ReadFromUDP(buf)
+			len, addr, err := remoteConn.ReadFromUDP(buf)
 			if err != nil {
 				errorChan <- err
 				return
 			}
 			if !acceptedRemoteToLocal {
-				fmt.Println("receive from remote...")
+				fmt.Printf("receive from remote[%s]\n", addr.String())
 				acceptedRemoteToLocal = true
 			}
 			// fmt.Printf("->th123 %d\n", len)
@@ -171,13 +171,13 @@ func passThroughPacket(remoteConn *net.UDPConn, localConn *net.UDPConn, recvRemo
 		for {
 			// ローカルからデータ読んでリモートへ送信
 			buf := make([]byte, BUFFER_SIZE)
-			len, _, err := localConn.ReadFromUDP(buf)
+			len, addr, err := localConn.ReadFromUDP(buf)
 			if err != nil {
 				errorChan <- err
 				return
 			}
 			if !acceptedLocalToRemote {
-				fmt.Println("receive from local...")
+				fmt.Printf("receive from local[%s]\n", addr.String())
 				acceptedLocalToRemote = true
 			}
 			// fmt.Printf("<-th123 %d\n", len)
