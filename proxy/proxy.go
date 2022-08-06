@@ -2,8 +2,8 @@ package proxy
 
 import (
 	"fmt"
+	"log"
 	"net"
-	"strconv"
 )
 
 type Error int
@@ -63,96 +63,113 @@ func New(recvClientPort int) (Proxy, error) {
 	return p, nil
 }
 
-func (p *Proxy) StartClient(sendAddrStr string) (chan bool, error) {
+func (p *Proxy) StartClient(sendAddrStr string) (chan bool, chan error, error) {
 	// 天則クライアントの待ち受け及びリモートからの通信待ち受け
 	localConn, err := net.ListenUDP("udp", p.LocalAddr)
 	if err != nil {
-		return nil, err
+		log.Fatal(err)
+		return nil, nil, err
 	}
 
 	fmt.Printf("start local server:%s\n", localConn.LocalAddr().String())
 
-	remoteAddr, err := parseIP(sendAddrStr)
+	remoteAddr, err := net.ResolveUDPAddr("udp", sendAddrStr)
 	if err != nil {
-		return nil, err
+		log.Fatal(err)
+		return nil, nil, err
 	}
 
-	remoteConn, err := net.Dial("udp", remoteAddr.String())
-	fmt.Printf("Remote send:%v\n", remoteAddr.String())
+	remoteConn, err := net.DialUDP("udp", nil, remoteAddr)
 	if err != nil {
-		return nil, err
+		log.Fatal(err)
+		return nil, nil, err
 	}
+
+	fmt.Printf("Remote send:%v\n", remoteAddr.String())
+
 	fmt.Println("start remote client")
 
-	abortChan, _ := passThroughPacket(remoteConn.(*net.UDPConn), localConn, nil)
+	abortChan, errChan, err := passThroughPacket(remoteConn, localConn, remoteConn.LocalAddr().(*net.UDPAddr), true)
+	if err != nil {
+		log.Fatal(err)
+		return nil, nil, err
+	}
 
-	return abortChan, nil
+	return abortChan, errChan, nil
 
 }
 
-func (p *Proxy) StartServer(proxyPort int) (chan bool, error) {
-	remoteAddr, err := parseIP(fmt.Sprintf("[::]:%d", proxyPort+1))
+func (p *Proxy) StartServer(proxyPort int) (chan bool, chan error, error) {
+	remoteAddr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("[::]:%d", proxyPort+1))
 	fmt.Printf("Receive from %d\n", remoteAddr.Port)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	remoteConn, err := net.ListenPacket("udp", remoteAddr.String())
 	if err != nil {
-		return nil, err
+		log.Fatal(err)
+		return nil, nil, err
 	}
 
 	localConn, err := net.Dial("udp", p.LocalAddr.String())
 	if err != nil {
-		return nil, err
+		log.Fatal(err)
+		return nil, nil, err
 	}
 
-	abortChan, _ := passThroughPacket(remoteConn.(*net.UDPConn), localConn.(*net.UDPConn), remoteConn.LocalAddr().(*net.UDPAddr))
+	abortChan, errChan, err := passThroughPacket(remoteConn.(*net.UDPConn), localConn.(*net.UDPConn), nil, false)
+	if err != nil {
+		log.Fatal(err)
+		return nil, nil, err
+	}
 
-	return abortChan, nil
+	return abortChan, errChan, nil
 }
 
-func parseIP(addrStr string) (*net.UDPAddr, error) {
-	ip, portStr, err := net.SplitHostPort(addrStr)
-
-	if err != nil {
-		return nil, err
-	}
-
-	port, err := strconv.ParseInt(portStr, 10, 16)
-
-	if err != nil {
-		return nil, err
-	}
-
-	return &net.UDPAddr{
-		IP:   net.ParseIP(ip),
-		Port: int(port),
-	}, nil
-
-}
-
-func passThroughPacket(remoteConn *net.UDPConn, localConn *net.UDPConn, recvRemoteAddr *net.UDPAddr) (chan bool, chan error) {
+func passThroughPacket(remoteConn *net.UDPConn, localConn *net.UDPConn, recvRemoteAddr *net.UDPAddr, knownRemoteAddr bool) (chan bool, chan error, error) {
 	abortChan := make(chan bool)
 	errorChan := make(chan error)
 
-	// recvRemoteAddrChan := make(chan net.UDPAddr)
+	var receiveRemoteConn *net.UDPConn
+	if recvRemoteAddr == nil {
+		receiveRemoteConn = remoteConn
+	} else {
+		conn, err := net.ListenUDP("udp", recvRemoteAddr)
+		if err != nil {
+			log.Fatal(err)
+			return nil, nil, err
+		}
+		receiveRemoteConn = conn
+	}
+
+	var sendRemoteConn *net.UDPConn
+	if knownRemoteAddr {
+		sendRemoteConn = remoteConn
+	} else {
+		conn, err := net.DialUDP("udp", remoteConn.LocalAddr().(*net.UDPAddr), remoteConn.RemoteAddr().(*net.UDPAddr))
+		if err != nil {
+			log.Fatal(err)
+			return nil, nil, err
+		}
+		sendRemoteConn = conn
+	}
 
 	acceptedRemoteToLocal := false
 	acceptedLocalToRemote := false
 
-	if addr := remoteConn.LocalAddr(); addr != nil {
+	if addr := receiveRemoteConn.LocalAddr(); addr != nil {
 		fmt.Printf("Remote local addr:%s\n", addr.String())
 	}
-	if addr := remoteConn.RemoteAddr(); addr != nil {
+	if addr := sendRemoteConn.RemoteAddr(); addr != nil {
 		fmt.Printf("Remote remote addr:%s\n", addr.String())
 	}
 	go func() {
-		defer remoteConn.Close()
-		buf := make([]byte, BUFFER_SIZE)
+		defer receiveRemoteConn.Close()
 		// リモートからデータ読んでローカルへ送信
 		for {
-			len, addr, err := remoteConn.ReadFromUDP(buf)
+			buf := make([]byte, BUFFER_SIZE)
+			len, addr, err := receiveRemoteConn.ReadFrom(buf)
 			if err != nil {
 				errorChan <- err
 				return
@@ -167,7 +184,7 @@ func passThroughPacket(remoteConn *net.UDPConn, localConn *net.UDPConn, recvRemo
 	}()
 
 	go func() {
-		defer localConn.Close()
+		defer sendRemoteConn.Close()
 		for {
 			// ローカルからデータ読んでリモートへ送信
 			buf := make([]byte, BUFFER_SIZE)
@@ -181,9 +198,9 @@ func passThroughPacket(remoteConn *net.UDPConn, localConn *net.UDPConn, recvRemo
 				acceptedLocalToRemote = true
 			}
 			// fmt.Printf("<-th123 %d\n", len)
-			remoteConn.Write(buf[:len])
+			sendRemoteConn.Write(buf[:len])
 		}
 	}()
 
-	return abortChan, errorChan
+	return abortChan, errorChan, nil
 }
