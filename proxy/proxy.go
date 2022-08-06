@@ -91,7 +91,7 @@ func (p *Proxy) StartClient(sendAddrStr string) (chan bool, error) {
 }
 
 func (p *Proxy) StartServer(proxyPort int) (chan bool, error) {
-	remoteAddr, err := parseIP(fmt.Sprintf("[::1]:%d", proxyPort+1))
+	remoteAddr, err := parseIP(fmt.Sprintf("[::]:%d", proxyPort+1))
 	fmt.Printf("Receive from %d\n", remoteAddr.Port)
 	if err != nil {
 		return nil, err
@@ -137,6 +137,7 @@ func passThroughPacket(remoteConn *net.UDPConn, localConn *net.UDPConn) (chan bo
 	errorChan := make(chan error)
 
 	go func() {
+		defer remoteConn.Close()
 		buf := make([]byte, BUFFER_SIZE)
 		// リモートからデータ読んでローカルへ送信
 		for {
@@ -151,6 +152,7 @@ func passThroughPacket(remoteConn *net.UDPConn, localConn *net.UDPConn) (chan bo
 	}()
 
 	go func() {
+		defer localConn.Close()
 		for {
 			// ローカルからデータ読んでリモートへ送信
 			buf := make([]byte, BUFFER_SIZE)
