@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"os"
 
 	"github.com/mattn/go-tty"
@@ -13,6 +14,7 @@ import (
 func main() {
 
 	var (
+		t          = flag.Bool("t", false, "test mode")
 		s          = flag.Bool("s", false, "server mode")
 		c          = flag.Bool("c", false, "client mode")
 		th123Port  = flag.Int("th", 10800, "th123 port")
@@ -20,6 +22,12 @@ func main() {
 	)
 
 	flag.Parse()
+
+	if *t {
+		c, _ := net.Dial("udp", *serverAddr)
+		c.Write([]byte("hello world"))
+		os.Exit(0)
+	}
 
 	if *s && *c {
 		fmt.Println("Do not both -s -c flag.")
@@ -38,11 +46,12 @@ func main() {
 	}
 
 	var abortChan chan bool
+	var errChan chan error
 
 	if *c {
 		fmt.Printf("mode: Client(use th123 port:%d)\n", *th123Port)
 
-		abortChan, err = p.StartClient(*serverAddr)
+		abortChan, errChan, err = p.StartClient(*serverAddr)
 
 		if err != nil {
 			log.Fatal(err)
@@ -51,7 +60,7 @@ func main() {
 	} else if *s || !*s && !*c {
 		// フラグが指定されなかった場合はサーバーモードで起動
 		fmt.Printf("mode: Server(use th123 port:%d)\n", *th123Port)
-		abortChan, err = p.StartServer(*th123Port)
+		abortChan, errChan, err = p.StartServer(*th123Port)
 		if err != nil {
 			log.Fatal(err)
 			os.Exit(1)
@@ -85,6 +94,9 @@ loop:
 		select {
 		case <-abortChan:
 			break loop
+		case err := <-errChan:
+			log.Fatal(err)
+			os.Exit(1)
 		case str := <-runeChan:
 			if str == "q" {
 				break loop
