@@ -141,9 +141,12 @@ func passThroughPacket(remoteConn *net.UDPConn, localConn *net.UDPConn, recvRemo
 	acceptedRemoteToLocal := false
 	acceptedLocalToRemote := false
 
-	fmt.Printf("Remote local addr:%s\n", remoteConn.LocalAddr().String())
-	fmt.Printf("Remote remote addr:%s\n", remoteConn.RemoteAddr().String())
-
+	if addr := remoteConn.LocalAddr(); addr != nil {
+		fmt.Printf("Remote local addr:%s\n", addr.String())
+	}
+	if addr := remoteConn.RemoteAddr(); addr != nil {
+		fmt.Printf("Remote remote addr:%s\n", addr.String())
+	}
 	go func() {
 		defer remoteConn.Close()
 		buf := make([]byte, BUFFER_SIZE)
