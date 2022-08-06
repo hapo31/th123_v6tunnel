@@ -132,46 +132,33 @@ func parseIP(addrStr string) (*net.UDPAddr, error) {
 }
 
 func passThroughPacket(remoteConn *net.UDPConn, localConn *net.UDPConn) (chan bool, chan error) {
-	recvTunnelChan := make(chan *net.UDPAddr)
 	abortChan := make(chan bool)
 	errorChan := make(chan error)
 
 	go func() {
 		buf := make([]byte, BUFFER_SIZE)
-		_, err := remoteConn.Read(buf)
-		if err != nil {
-			errorChan <- err
-			return
-		}
-
-		recvAddr := remoteConn.RemoteAddr()
-		recvTunnelChan <- recvAddr.(*net.UDPAddr)
 		// リモートからデータ読んでローカルへ送信
 		for {
-			_, addr, err := remoteConn.ReadFromUDP(buf)
+			len, addr, err := remoteConn.ReadFromUDP(buf)
 			if err != nil {
 				errorChan <- err
 				return
 			}
+			fmt.Printf("->th123 %d\n", len)
 			localConn.WriteToUDP(buf, addr)
 		}
 	}()
 
 	go func() {
-		addr := <-recvTunnelChan
-		conn, err := net.ListenUDP("udp", addr)
-		if err != nil {
-			errorChan <- err
-			return
-		}
 		for {
 			// ローカルからデータ読んでリモートへ送信
 			buf := make([]byte, BUFFER_SIZE)
-			_, addr, err := conn.ReadFromUDP(buf)
+			len, addr, err := localConn.ReadFromUDP(buf)
 			if err != nil {
 				errorChan <- err
 				return
 			}
+			fmt.Printf("<-th123 %d\n", len)
 			remoteConn.WriteToUDP(buf, addr)
 		}
 	}()
