@@ -91,12 +91,13 @@ func (p *Proxy) StartClient(sendAddrStr string) (chan bool, error) {
 }
 
 func (p *Proxy) StartServer(proxyPort int) (chan bool, error) {
-	remoteAddr, err := parseIP(fmt.Sprintf("[::1]:%d", proxyPort))
+	remoteAddr, err := parseIP(fmt.Sprintf("[::1]:%d", proxyPort+1))
+	fmt.Printf("Receive from %d\n", proxyPort)
 	if err != nil {
 		return nil, err
 	}
 
-	remoteConn, err := net.ListenUDP("udp", remoteAddr)
+	remoteConn, err := net.ListenPacket("udp", remoteAddr.String())
 	if err != nil {
 		return nil, err
 	}
@@ -106,7 +107,7 @@ func (p *Proxy) StartServer(proxyPort int) (chan bool, error) {
 		return nil, err
 	}
 
-	abortChan, _ := passThroughPacket(remoteConn, localConn.(*net.UDPConn))
+	abortChan, _ := passThroughPacket(remoteConn.(*net.UDPConn), localConn.(*net.UDPConn))
 
 	return abortChan, nil
 }
