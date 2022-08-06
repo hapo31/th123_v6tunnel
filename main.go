@@ -16,7 +16,7 @@ func main() {
 		s          = flag.Bool("s", false, "server mode")
 		c          = flag.Bool("c", false, "client mode")
 		th123Port  = flag.Int("th", 10800, "th123 port")
-		serverAddr = flag.String("i", "INVALID_ADDRESS", "proxy server ip address")
+		serverAddr = flag.String("i", "", "server ip address")
 	)
 
 	flag.Parse()
@@ -26,7 +26,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	if *c && serverAddr == nil {
+	if *c && len(*serverAddr) == 0 {
 		fmt.Println("Must set be -i flag in client mode.")
 		os.Exit(1)
 	}
@@ -48,7 +48,8 @@ func main() {
 			log.Fatal(err)
 			os.Exit(1)
 		}
-	} else if *s {
+	} else if *s || !*s && !*c {
+		// フラグが指定されなかった場合はサーバーモードで起動
 		fmt.Printf("mode: Server(use th123 port:%d)\n", *th123Port)
 		abortChan, err = p.StartServer(*th123Port)
 		if err != nil {
