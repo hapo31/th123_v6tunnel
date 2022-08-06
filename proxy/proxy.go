@@ -70,7 +70,7 @@ func (p *Proxy) StartClient(sendAddrStr string) (chan bool, error) {
 		return nil, err
 	}
 
-	fmt.Println("start local server")
+	fmt.Printf("start local server:%s\n", localConn.LocalAddr().String())
 
 	remoteAddr, err := parseIP(sendAddrStr)
 	if err != nil {
@@ -156,13 +156,13 @@ func passThroughPacket(remoteConn *net.UDPConn, localConn *net.UDPConn) (chan bo
 		for {
 			// ローカルからデータ読んでリモートへ送信
 			buf := make([]byte, BUFFER_SIZE)
-			len, addr, err := localConn.ReadFromUDP(buf)
+			len, _, err := localConn.ReadFromUDP(buf)
 			if err != nil {
 				errorChan <- err
 				return
 			}
 			fmt.Printf("<-th123 %d\n", len)
-			remoteConn.WriteToUDP(buf, addr)
+			remoteConn.Write(buf)
 		}
 	}()
 
