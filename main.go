@@ -66,6 +66,7 @@ func main() {
 	defer tty.Close()
 
 	runeChan := make(chan string)
+	waitChan := make(chan bool)
 
 	go func() {
 		for {
@@ -75,6 +76,7 @@ func main() {
 				log.Fatal(err)
 			}
 			runeChan <- string(r)
+			<-waitChan
 		}
 	}()
 
@@ -88,6 +90,7 @@ loop:
 				break loop
 			}
 		}
+		waitChan <- true
 	}
 
 	fmt.Println("bye.")
