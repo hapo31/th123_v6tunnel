@@ -92,7 +92,7 @@ func (p *Proxy) StartClient(sendAddrStr string) (chan bool, error) {
 
 func (p *Proxy) StartServer(proxyPort int) (chan bool, error) {
 	remoteAddr, err := parseIP(fmt.Sprintf("[::1]:%d", proxyPort+1))
-	fmt.Printf("Receive from %d\n", proxyPort)
+	fmt.Printf("Receive from %d\n", remoteAddr.Port)
 	if err != nil {
 		return nil, err
 	}
