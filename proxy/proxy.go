@@ -84,7 +84,7 @@ func (p *Proxy) StartClient(sendAddrStr string) (chan bool, error) {
 	}
 	fmt.Println("start remote client")
 
-	abortChan, _ := passThroughPacket(remoteConn.(*net.UDPConn), localConn)
+	abortChan, _ := passThroughPacket(remoteConn.(*net.UDPConn), localConn, nil)
 
 	return abortChan, nil
 
@@ -107,7 +107,7 @@ func (p *Proxy) StartServer(proxyPort int) (chan bool, error) {
 		return nil, err
 	}
 
-	abortChan, _ := passThroughPacket(remoteConn.(*net.UDPConn), localConn.(*net.UDPConn))
+	abortChan, _ := passThroughPacket(remoteConn.(*net.UDPConn), localConn.(*net.UDPConn), remoteConn.LocalAddr().(*net.UDPAddr))
 
 	return abortChan, nil
 }
@@ -132,9 +132,17 @@ func parseIP(addrStr string) (*net.UDPAddr, error) {
 
 }
 
-func passThroughPacket(remoteConn *net.UDPConn, localConn *net.UDPConn) (chan bool, chan error) {
+func passThroughPacket(remoteConn *net.UDPConn, localConn *net.UDPConn, recvRemoteAddr *net.UDPAddr) (chan bool, chan error) {
 	abortChan := make(chan bool)
 	errorChan := make(chan error)
+
+	// recvRemoteAddrChan := make(chan net.UDPAddr)
+
+	acceptedRemoteToLocal := false
+	acceptedLocalToRemote := false
+
+	fmt.Printf("Remote local addr:%s\n", remoteConn.LocalAddr().String())
+	fmt.Printf("Remote remote addr:%s\n", remoteConn.RemoteAddr().String())
 
 	go func() {
 		defer remoteConn.Close()
@@ -146,7 +154,11 @@ func passThroughPacket(remoteConn *net.UDPConn, localConn *net.UDPConn) (chan bo
 				errorChan <- err
 				return
 			}
-			fmt.Printf("->th123 %d\n", len)
+			if !acceptedRemoteToLocal {
+				fmt.Println("receive from remote...")
+				acceptedRemoteToLocal = true
+			}
+			// fmt.Printf("->th123 %d\n", len)
 			localConn.Write(buf[:len])
 		}
 	}()
@@ -161,7 +173,11 @@ func passThroughPacket(remoteConn *net.UDPConn, localConn *net.UDPConn) (chan bo
 				errorChan <- err
 				return
 			}
-			fmt.Printf("<-th123 %d\n", len)
+			if !acceptedLocalToRemote {
+				fmt.Println("receive from local...")
+				acceptedLocalToRemote = true
+			}
+			// fmt.Printf("<-th123 %d\n", len)
 			remoteConn.Write(buf[:len])
 		}
 	}()
