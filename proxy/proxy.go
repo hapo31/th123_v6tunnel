@@ -141,13 +141,13 @@ func passThroughPacket(remoteConn *net.UDPConn, localConn *net.UDPConn) (chan bo
 		buf := make([]byte, BUFFER_SIZE)
 		// リモートからデータ読んでローカルへ送信
 		for {
-			len, addr, err := remoteConn.ReadFromUDP(buf)
+			len, _, err := remoteConn.ReadFromUDP(buf)
 			if err != nil {
 				errorChan <- err
 				return
 			}
 			fmt.Printf("->th123 %d\n", len)
-			localConn.WriteToUDP(buf, addr)
+			localConn.Write(buf)
 		}
 	}()
 
