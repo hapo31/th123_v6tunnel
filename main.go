@@ -69,6 +69,7 @@ func main() {
 
 	go func() {
 		for {
+			println("> (type q was quit.)")
 			r, err := tty.ReadRune()
 			if err != nil {
 				log.Fatal(err)
