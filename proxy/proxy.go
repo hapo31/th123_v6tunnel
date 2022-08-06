@@ -147,7 +147,7 @@ func passThroughPacket(remoteConn *net.UDPConn, localConn *net.UDPConn) (chan bo
 				return
 			}
 			fmt.Printf("->th123 %d\n", len)
-			localConn.Write(buf)
+			localConn.Write(buf[:len])
 		}
 	}()
 
@@ -162,7 +162,7 @@ func passThroughPacket(remoteConn *net.UDPConn, localConn *net.UDPConn) (chan bo
 				return
 			}
 			fmt.Printf("<-th123 %d\n", len)
-			remoteConn.Write(buf)
+			remoteConn.Write(buf[:len])
 		}
 	}()
 
