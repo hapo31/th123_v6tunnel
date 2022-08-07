@@ -51,7 +51,7 @@ func main() {
 	if *c {
 		fmt.Printf("mode: Client(use th123 port:%d)\n", *th123Port)
 
-		abortChan, errChan, err = p.StartClient(*serverAddr)
+		errChan, err = p.StartClient(*serverAddr)
 
 		if err != nil {
 			log.Fatal(err)
@@ -60,7 +60,7 @@ func main() {
 	} else if *s || !*s && !*c {
 		// フラグが指定されなかった場合はサーバーモードで起動
 		fmt.Printf("mode: Server(use th123 port:%d)\n", *th123Port)
-		abortChan, errChan, err = p.StartServer(*th123Port)
+		errChan, err = p.StartServer(*th123Port)
 		if err != nil {
 			log.Fatal(err)
 			os.Exit(1)
@@ -78,8 +78,8 @@ func main() {
 	waitChan := make(chan bool)
 
 	go func() {
+		println("> (type q was quit.)")
 		for {
-			println("> (type q was quit.)")
 			r, err := tty.ReadRune()
 			if err != nil {
 				log.Fatal(err)
