@@ -58,33 +58,40 @@ func New(recvClientPort int) (Proxy, error) {
 }
 
 func (p *Proxy) StartClient(sendAddrStr string) (chan error, error) {
-	// 天則クライアントの待ち受け及びリモートからの通信待ち受け
-	localConn, err := net.ListenUDP("udp", p.LocalAddr)
-	if err != nil {
-		log.Fatal(err)
-		return nil, err
-	}
-
-	remoteAddr, err := net.ResolveUDPAddr("udp", sendAddrStr)
-	if err != nil {
-		log.Fatal(err)
-		return nil, err
-	}
-
-	remoteConn, err := net.DialUDP("udp", nil, remoteAddr)
-	if err != nil {
-		log.Fatal(err)
-		return nil, err
-	}
 
 	errChan := make(chan error)
+	// 天則クライアントの待ち受け及びリモートからの通信待ち受け
 	go func() {
-		defer remoteConn.Close()
-		defer localConn.Close()
 		for {
+			remoteAddr, err := net.ResolveUDPAddr("udp", sendAddrStr)
+			if err != nil {
+				log.Fatal(err)
+				errChan <- err
+				return
+			}
+
+			localConn, err := net.ListenUDP("udp", p.LocalAddr)
+			if err != nil {
+				if err != nil {
+					log.Fatal(err)
+					errChan <- err
+					return
+				}
+			}
+
+			remoteConn, err := net.DialUDP("udp", nil, remoteAddr)
+			if err != nil {
+				log.Fatal(err)
+				errChan <- err
+				return
+			}
 			code, err := pass(localConn, remoteConn, nil, func(r *net.UDPAddr) {
 				go pass(remoteConn, localConn, r, func(_ *net.UDPAddr) {})
 			})
+
+			remoteConn.Close()
+			localConn.Close()
+
 			if err != nil {
 				errChan <- err
 				return
@@ -108,30 +115,31 @@ func (p *Proxy) StartServer(proxyPort int) (chan error, error) {
 		return nil, err
 	}
 
-	remoteConn, err := net.ListenPacket("udp", remoteAddr.String())
-	if err != nil {
-		log.Fatal(err)
-		return nil, err
-	}
-
-	localConn, err := net.Dial("udp", p.LocalAddr.String())
-	if err != nil {
-		log.Fatal(err)
-		return nil, err
-	}
-	if err != nil {
-		log.Fatal(err)
-		return nil, err
-	}
-
 	errChan := make(chan error)
+	// リモートからの通信待ち受け
 	go func() {
-		defer remoteConn.Close()
-		defer localConn.Close()
 		for {
+			remoteConn, err := net.ListenPacket("udp", remoteAddr.String())
+			if err != nil {
+				log.Fatal(err)
+				errChan <- err
+				return
+			}
+
+			localConn, err := net.Dial("udp", p.LocalAddr.String())
+			if err != nil {
+				log.Fatal(err)
+				errChan <- err
+				return
+			}
+
 			code, err := pass(remoteConn.(*net.UDPConn), localConn.(*net.UDPConn), nil, func(r *net.UDPAddr) {
 				go pass(localConn.(*net.UDPConn), remoteConn.(*net.UDPConn), r, func(_ *net.UDPAddr) {})
 			})
+
+			remoteConn.Close()
+			localConn.Close()
+
 			if err != nil {
 				errChan <- err
 				return
