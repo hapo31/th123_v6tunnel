@@ -32,27 +32,14 @@ type ProxyChannel struct {
 
 type Proxy struct {
 	LocalAddr *net.UDPAddr
-	LocalConn *net.UDPConn
-
-	RemoteAddr *net.UDPAddr
-	RemoteConn *net.UDPConn
-
-	receiving bool
-
-	RecvChannel  chan ProxyChannel
-	ErrorChannel chan error
-	AbortChannel chan bool
 }
 
-func New(recvClientPort int) (Proxy, error) {
+func New(th123Port int) (Proxy, error) {
 	p := Proxy{}
 	p.LocalAddr = &net.UDPAddr{
 		IP:   net.ParseIP("127.0.0.1"),
-		Port: recvClientPort,
+		Port: th123Port,
 	}
-
-	p.ErrorChannel = make(chan error)
-	p.receiving = false
 
 	return p, nil
 }
@@ -60,17 +47,16 @@ func New(recvClientPort int) (Proxy, error) {
 func (p *Proxy) StartClient(sendAddrStr string) (chan error, error) {
 
 	errChan := make(chan error)
+	remoteAddr, err := net.ResolveUDPAddr("udp", sendAddrStr)
+	if err != nil {
+		log.Fatal(err)
+		return nil, err
+	}
 	// 天則クライアントの待ち受け及びリモートからの通信待ち受け
 	go func() {
 		for {
-			remoteAddr, err := net.ResolveUDPAddr("udp", sendAddrStr)
-			if err != nil {
-				log.Fatal(err)
-				errChan <- err
-				return
-			}
 
-			localConn, err := net.ListenUDP("udp", p.LocalAddr)
+			localConn, err := net.ListenPacket("udp", p.LocalAddr.String())
 			if err != nil {
 				if err != nil {
 					log.Fatal(err)
@@ -79,14 +65,15 @@ func (p *Proxy) StartClient(sendAddrStr string) (chan error, error) {
 				}
 			}
 
-			remoteConn, err := net.DialUDP("udp", nil, remoteAddr)
+			remoteConn, err := net.Dial("udp", remoteAddr.String())
 			if err != nil {
 				log.Fatal(err)
 				errChan <- err
 				return
 			}
-			code, err := pass(localConn, remoteConn, nil, func(r *net.UDPAddr) {
-				go pass(remoteConn, localConn, r, func(_ *net.UDPAddr) {})
+			code, err := pass(localConn.(*net.UDPConn), remoteConn.(*net.UDPConn), nil, func(r *net.UDPAddr) bool {
+				go pass(remoteConn.(*net.UDPConn), localConn.(*net.UDPConn), r, func(_ *net.UDPAddr) bool { return true })
+				return true
 			})
 
 			remoteConn.Close()
@@ -133,8 +120,9 @@ func (p *Proxy) StartServer(proxyPort int) (chan error, error) {
 				return
 			}
 
-			code, err := pass(remoteConn.(*net.UDPConn), localConn.(*net.UDPConn), nil, func(r *net.UDPAddr) {
-				go pass(localConn.(*net.UDPConn), remoteConn.(*net.UDPConn), r, func(_ *net.UDPAddr) {})
+			code, err := pass(remoteConn.(*net.UDPConn), localConn.(*net.UDPConn), nil, func(r *net.UDPAddr) bool {
+				go pass(localConn.(*net.UDPConn), remoteConn.(*net.UDPConn), r, func(_ *net.UDPAddr) bool { return true })
+				return true
 			})
 
 			remoteConn.Close()
@@ -148,6 +136,8 @@ func (p *Proxy) StartServer(proxyPort int) (chan error, error) {
 				if code == TimedOut {
 					continue
 				}
+			} else {
+				fmt.Printf("Unexcepted error code %d\n", code)
 			}
 		}
 	}()
@@ -155,12 +145,9 @@ func (p *Proxy) StartServer(proxyPort int) (chan error, error) {
 	return errChan, nil
 }
 
-func pass(receiveConn *net.UDPConn, sendConn *net.UDPConn, sendAddr *net.UDPAddr, onReceived func(addr *net.UDPAddr)) (Error, error) {
+func pass(receiveConn *net.UDPConn, sendConn *net.UDPConn, sendAddr *net.UDPAddr, onReceived func(addr *net.UDPAddr) bool) (Error, error) {
 	accepted := false
-	bufferChan := make(chan (struct {
-		buf []byte
-		len int
-	}), BUFFER_SIZE)
+	bufferChan := make(chan []byte, BUFFER_SIZE)
 	errChan := make(chan error)
 
 	ticker := time.NewTicker(1000 * time.Millisecond)
@@ -177,13 +164,9 @@ func pass(receiveConn *net.UDPConn, sendConn *net.UDPConn, sendAddr *net.UDPAddr
 				return
 			}
 			if !accepted {
-				onReceived(addr)
-				accepted = true
+				accepted = onReceived(addr)
 			}
-			bufferChan <- struct {
-				buf []byte
-				len int
-			}{buf: buf, len: len}
+			bufferChan <- buf[:len]
 		}
 	}()
 
@@ -197,10 +180,10 @@ func pass(receiveConn *net.UDPConn, sendConn *net.UDPConn, sendAddr *net.UDPAddr
 			var addr *net.UDPAddr
 			if sendAddr != nil {
 				addr = sendAddr
-				_, err = sendConn.WriteTo(buf.buf[:buf.len], sendAddr)
+				_, err = sendConn.WriteTo(buf, sendAddr)
 			} else {
 				addr = sendConn.RemoteAddr().(*net.UDPAddr)
-				_, err = sendConn.Write(buf.buf[:buf.len])
+				_, err = sendConn.Write(buf)
 			}
 			fmt.Printf("received: %s\n", receiveConn.LocalAddr().String())
 			fmt.Printf("send: %s\n", addr.String())
@@ -211,7 +194,7 @@ func pass(receiveConn *net.UDPConn, sendConn *net.UDPConn, sendAddr *net.UDPAddr
 		case err := <-errChan:
 			return Runtime, err
 		case <-ticker.C:
-			if tickCount > 3 {
+			if tickCount > 2 {
 				return TimedOut, nil
 			}
 			tickCount++
