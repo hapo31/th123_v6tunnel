@@ -169,7 +169,6 @@ func pass(receiveConn *net.UDPConn, sendConn *net.UDPConn, sendAddr *net.UDPAddr
 
 	// 受信
 	go func() {
-		fmt.Printf("[%s] wait in:%s\n", time.Now(), receiveConn.LocalAddr().String())
 		for {
 			buf := make([]byte, BUFFER_SIZE)
 			len, addr, err := receiveConn.ReadFromUDP(buf)
