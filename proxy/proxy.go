@@ -55,24 +55,27 @@ func (p *Proxy) StartClient(sendAddrStr string) (chan error, error) {
 	// 天則クライアントの待ち受け及びリモートからの通信待ち受け
 	go func() {
 		for {
-
-			localConn, err := net.ListenPacket("udp", p.LocalAddr.String())
-			if err != nil {
-				if err != nil {
-					log.Fatal(err)
-					errChan <- err
-					return
-				}
-			}
-
-			remoteConn, err := net.Dial("udp", remoteAddr.String())
+			localConn, err := net.ListenUDP("udp", p.LocalAddr)
 			if err != nil {
 				log.Fatal(err)
 				errChan <- err
 				return
 			}
-			code, err := pass(localConn.(*net.UDPConn), remoteConn.(*net.UDPConn), nil, func(r *net.UDPAddr) bool {
-				go pass(remoteConn.(*net.UDPConn), localConn.(*net.UDPConn), r, func(_ *net.UDPAddr) bool { return true })
+
+			remoteConn, err := net.DialUDP("udp", nil, remoteAddr)
+			if err != nil {
+				log.Fatal(err)
+				errChan <- err
+				return
+			}
+
+			code, err := pass(localConn, remoteConn, nil, func(r *net.UDPAddr) bool {
+				fmt.Printf("received:%s, me: %s\n", r.String(), remoteConn.LocalAddr().String())
+				go pass(remoteConn, localConn, r, func(rr *net.UDPAddr) bool {
+					// TODO: ここが出ない
+					fmt.Printf("response:%s\n", rr.String())
+					return true
+				})
 				return true
 			})
 
@@ -153,7 +156,6 @@ func pass(receiveConn *net.UDPConn, sendConn *net.UDPConn, sendAddr *net.UDPAddr
 	ticker := time.NewTicker(1000 * time.Millisecond)
 
 	defer ticker.Stop()
-
 	// 受信
 	go func() {
 		for {
@@ -177,16 +179,11 @@ func pass(receiveConn *net.UDPConn, sendConn *net.UDPConn, sendAddr *net.UDPAddr
 		select {
 		case buf := <-bufferChan:
 			var err error
-			var addr *net.UDPAddr
 			if sendAddr != nil {
-				addr = sendAddr
 				_, err = sendConn.WriteTo(buf, sendAddr)
 			} else {
-				addr = sendConn.RemoteAddr().(*net.UDPAddr)
 				_, err = sendConn.Write(buf)
 			}
-			fmt.Printf("received: %s\n", receiveConn.LocalAddr().String())
-			fmt.Printf("send: %s\n", addr.String())
 			if err != nil {
 				return Runtime, err
 			}
