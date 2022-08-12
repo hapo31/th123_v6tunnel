@@ -14,19 +14,31 @@ import (
 func main() {
 
 	var (
-		t          = flag.Bool("t", false, "test mode")
-		s          = flag.Bool("s", false, "server mode")
-		c          = flag.Bool("c", false, "client mode")
-		ipv6       = flag.Bool("6", false, "ipv6 mode")
-		th123Port  = flag.Int("th", 10800, "th123 port")
-		th123Addr  = flag.String("th_addr", fmt.Sprintf("127.0.0.1:%d", *th123Port), "th123 addr")
-		serverPort = flag.Int("p", *th123Port+1, "server port")
-		remoteAddr = flag.String("i", "", "remote ip address")
+		t            = flag.Bool("t", false, "test mode")
+		s            = flag.Bool("s", false, "server mode")
+		c            = flag.Bool("c", false, "client mode")
+		th123Port    = flag.Int("th", 10800, "th123 port")
+		th123AddrArg = flag.String("th_addr", "", "th123 addr")
+		serverPort   = flag.Int("p", *th123Port+1, "server port")
+		remoteAddr   = flag.String("i", "", "remote ip address")
 	)
 
 	flag.Parse()
 
 	clientMode := *c || *remoteAddr != ""
+
+	var th123Addr *net.UDPAddr
+	var addr *net.UDPAddr
+	var err error
+	if *th123AddrArg == "" {
+		addr, err = net.ResolveUDPAddr("udp", fmt.Sprintf("127.0.0.1:%d", *th123Port))
+	} else {
+		addr, err = net.ResolveUDPAddr("udp", *th123AddrArg)
+	}
+	if err != nil {
+		panic(err.Error())
+	}
+	th123Addr = addr
 
 	if *t {
 		c, _ := net.Dial("udp", *remoteAddr)
@@ -44,7 +56,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	p, err := proxy.New(*th123Addr)
+	p, err := proxy.New(th123Addr.String())
 	if err != nil {
 		log.Fatal(err)
 		os.Exit(1)
@@ -54,7 +66,7 @@ func main() {
 	var errChan chan error
 
 	if clientMode {
-		fmt.Printf("mode: Client(use th123 port:%d)\n", *th123Port)
+		fmt.Printf("mode: Client(use th123 port:%d)\n", p.LocalAddr.Port)
 
 		errChan, err = p.StartClient(*remoteAddr)
 
@@ -64,8 +76,8 @@ func main() {
 		}
 	} else if *s || !*s && !*c {
 		// フラグが指定されなかった場合はサーバーモードで起動
-		fmt.Printf("mode: Server(use th123 port:%d)\n", *th123Port)
-		errChan, err = p.StartServer(*serverPort, *ipv6)
+		fmt.Printf("mode: Server(use th123 port:%d)\n", p.LocalAddr.Port)
+		errChan, err = p.StartServer(*serverPort)
 		if err != nil {
 			log.Fatal(err)
 			os.Exit(1)
