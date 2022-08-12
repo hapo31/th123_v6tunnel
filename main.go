@@ -66,7 +66,7 @@ func main() {
 	var errChan chan error
 
 	if clientMode {
-		fmt.Printf("mode: Client(use th123 port:%d)\n", p.LocalAddr.Port)
+		fmt.Printf("mode: Client(Copy this IP -> %s\n", p.LocalAddr.AddrPort().String())
 
 		errChan, err = p.StartClient(*remoteAddr)
 
@@ -76,7 +76,7 @@ func main() {
 		}
 	} else if *s || !*s && !*c {
 		// フラグが指定されなかった場合はサーバーモードで起動
-		fmt.Printf("mode: Server(use th123 port:%d)\n", p.LocalAddr.Port)
+		fmt.Printf("mode: Server(You use th123 port:%d)\n", p.LocalAddr.Port)
 		errChan, err = p.StartServer(*serverPort)
 		if err != nil {
 			log.Fatal(err)
