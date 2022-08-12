@@ -101,8 +101,6 @@ func (p *Proxy) StartServer(proxyPort int) (chan error, error) {
 	if err != nil {
 		return nil, err
 	}
-	fmt.Printf("th123 should wait in: %s\n", p.LocalAddr.String())
-	fmt.Printf("wait from in %s\n", remoteAddr.String())
 
 	errChan := make(chan error)
 	// リモートからの通信待ち受け
@@ -183,10 +181,8 @@ func pass(receiveConn *net.UDPConn, sendConn *net.UDPConn, sendAddr *net.UDPAddr
 			var err error
 			if sendAddr != nil {
 				_, err = sendConn.WriteTo(buf, sendAddr)
-				fmt.Printf("%dbytes->%s\n", len(buf), sendAddr.String())
 			} else {
 				_, err = sendConn.Write(buf)
-				fmt.Printf("%dbytes->%s\n", len(buf), sendConn.RemoteAddr().String())
 			}
 			if err != nil {
 				return Runtime, err
@@ -201,5 +197,4 @@ func pass(receiveConn *net.UDPConn, sendConn *net.UDPConn, sendAddr *net.UDPAddr
 			tickCount++
 		}
 	}
-
 }
