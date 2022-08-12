@@ -34,12 +34,14 @@ type Proxy struct {
 	LocalAddr *net.UDPAddr
 }
 
-func New(th123Port int) (Proxy, error) {
+func New(th123Addr string) (Proxy, error) {
 	p := Proxy{}
-	p.LocalAddr = &net.UDPAddr{
-		IP:   net.ParseIP("127.0.0.1"),
-		Port: th123Port,
+
+	addr, err := net.ResolveUDPAddr("udp", th123Addr)
+	if err != nil {
+		panic(err.Error())
 	}
+	p.LocalAddr = addr
 
 	return p, nil
 }

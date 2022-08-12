@@ -19,6 +19,7 @@ func main() {
 		c          = flag.Bool("c", false, "client mode")
 		ipv6       = flag.Bool("6", false, "ipv6 mode")
 		th123Port  = flag.Int("th", 10800, "th123 port")
+		th123Addr  = flag.String("th_addr", fmt.Sprintf("127.0.0.1:%d", *th123Port), "th123 addr")
 		serverPort = flag.Int("p", *th123Port+1, "server port")
 		remoteAddr = flag.String("i", "", "remote ip address")
 	)
@@ -43,7 +44,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	p, err := proxy.New(*th123Port)
+	p, err := proxy.New(*th123Addr)
 	if err != nil {
 		log.Fatal(err)
 		os.Exit(1)
