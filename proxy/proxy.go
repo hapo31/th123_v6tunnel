@@ -72,12 +72,8 @@ func (p *Proxy) StartClient(sendAddrStr string) (chan error, error) {
 			}
 
 			code, err := pass(localConn, remoteConn, nil, func(r *net.UDPAddr) bool {
-				fmt.Printf("received:%s, me: %s\n", r.String(), remoteConn.LocalAddr().String())
-				go pass(remoteConn, localConn, r, func(rr *net.UDPAddr) bool {
-					// TODO: ここが出ない
-					fmt.Printf("response:%s\n", rr.String())
-					return true
-				})
+				recvConn, _ := net.ListenUDP("udp", remoteConn.LocalAddr().(*net.UDPAddr))
+				go pass(recvConn, localConn, r, func(rr *net.UDPAddr) bool { return true })
 				return true
 			})
 
@@ -100,18 +96,13 @@ func (p *Proxy) StartClient(sendAddrStr string) (chan error, error) {
 
 }
 
-func (p *Proxy) StartServer(proxyPort int, ipv6 bool) (chan error, error) {
-	var addr string
-	if ipv6 {
-		addr = fmt.Sprintf("[::]:%d", proxyPort)
-	} else {
-		addr = fmt.Sprintf("0.0.0.0:%d", proxyPort)
-	}
-	remoteAddr, err := net.ResolveUDPAddr("udp", addr)
+func (p *Proxy) StartServer(proxyPort int) (chan error, error) {
+	remoteAddr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("[::]:%d", proxyPort))
 	if err != nil {
 		return nil, err
 	}
-	fmt.Printf("wait from in %s\n", addr)
+	fmt.Printf("th123 should wait in: %s\n", p.LocalAddr.String())
+	fmt.Printf("wait from in %s\n", remoteAddr.String())
 
 	errChan := make(chan error)
 	// リモートからの通信待ち受け
@@ -169,7 +160,9 @@ func pass(receiveConn *net.UDPConn, sendConn *net.UDPConn, sendAddr *net.UDPAddr
 	go func() {
 		for {
 			buf := make([]byte, BUFFER_SIZE)
+
 			len, addr, err := receiveConn.ReadFromUDP(buf)
+
 			if err != nil {
 				errChan <- err
 				return
@@ -190,8 +183,10 @@ func pass(receiveConn *net.UDPConn, sendConn *net.UDPConn, sendAddr *net.UDPAddr
 			var err error
 			if sendAddr != nil {
 				_, err = sendConn.WriteTo(buf, sendAddr)
+				fmt.Printf("%dbytes->%s\n", len(buf), sendAddr.String())
 			} else {
 				_, err = sendConn.Write(buf)
+				fmt.Printf("%dbytes->%s\n", len(buf), sendConn.RemoteAddr().String())
 			}
 			if err != nil {
 				return Runtime, err
