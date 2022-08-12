@@ -17,14 +17,18 @@ func main() {
 		t          = flag.Bool("t", false, "test mode")
 		s          = flag.Bool("s", false, "server mode")
 		c          = flag.Bool("c", false, "client mode")
+		ipv6       = flag.Bool("6", false, "ipv6 mode")
 		th123Port  = flag.Int("th", 10800, "th123 port")
-		serverAddr = flag.String("i", "", "server ip address")
+		serverPort = flag.Int("p", *th123Port+1, "server port")
+		remoteAddr = flag.String("i", "", "remote ip address")
 	)
 
 	flag.Parse()
 
+	clientMode := *c || *remoteAddr != ""
+
 	if *t {
-		c, _ := net.Dial("udp", *serverAddr)
+		c, _ := net.Dial("udp", *remoteAddr)
 		c.Write([]byte("hello world"))
 		os.Exit(0)
 	}
@@ -34,7 +38,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	if *c && len(*serverAddr) == 0 {
+	if *c && len(*remoteAddr) == 0 {
 		fmt.Println("Must set be -i flag in client mode.")
 		os.Exit(1)
 	}
@@ -48,10 +52,10 @@ func main() {
 	var abortChan chan bool
 	var errChan chan error
 
-	if *c {
+	if clientMode {
 		fmt.Printf("mode: Client(use th123 port:%d)\n", *th123Port)
 
-		errChan, err = p.StartClient(*serverAddr)
+		errChan, err = p.StartClient(*remoteAddr)
 
 		if err != nil {
 			log.Fatal(err)
@@ -60,11 +64,15 @@ func main() {
 	} else if *s || !*s && !*c {
 		// フラグが指定されなかった場合はサーバーモードで起動
 		fmt.Printf("mode: Server(use th123 port:%d)\n", *th123Port)
-		errChan, err = p.StartServer(*th123Port)
+		errChan, err = p.StartServer(*serverPort, *ipv6)
 		if err != nil {
 			log.Fatal(err)
 			os.Exit(1)
 		}
+	} else {
+		println("Unexcepted options.")
+		os.Exit(1)
+
 	}
 
 	tty, err := tty.Open()

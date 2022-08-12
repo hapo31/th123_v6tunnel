@@ -98,12 +98,18 @@ func (p *Proxy) StartClient(sendAddrStr string) (chan error, error) {
 
 }
 
-func (p *Proxy) StartServer(proxyPort int) (chan error, error) {
-	remoteAddr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("[::]:%d", proxyPort+1))
-	fmt.Printf("wait from port %d\n", remoteAddr.Port)
+func (p *Proxy) StartServer(proxyPort int, ipv6 bool) (chan error, error) {
+	var addr string
+	if ipv6 {
+		addr = fmt.Sprintf("[::]:%d", proxyPort)
+	} else {
+		addr = fmt.Sprintf("0.0.0.0:%d", proxyPort)
+	}
+	remoteAddr, err := net.ResolveUDPAddr("udp", addr)
 	if err != nil {
 		return nil, err
 	}
+	fmt.Printf("wait from in %s\n", addr)
 
 	errChan := make(chan error)
 	// リモートからの通信待ち受け
@@ -124,6 +130,7 @@ func (p *Proxy) StartServer(proxyPort int) (chan error, error) {
 			}
 
 			code, err := pass(remoteConn.(*net.UDPConn), localConn.(*net.UDPConn), nil, func(r *net.UDPAddr) bool {
+				fmt.Printf("accepted:%s\n", r.AddrPort().String())
 				go pass(localConn.(*net.UDPConn), remoteConn.(*net.UDPConn), r, func(_ *net.UDPAddr) bool { return true })
 				return true
 			})
