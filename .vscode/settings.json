@@ -2,5 +2,6 @@
   "terminal.integrated.defaultProfile.windows": "Windows PowerShell",
   "editor.defaultFormatter": "golang.go",
   "editor.formatOnSave": true,
-  "editor.formatOnSaveMode": "file"
+  "editor.formatOnSaveMode": "file",
+  "go.useLanguageServer": true
 }
