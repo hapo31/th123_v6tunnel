@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -24,6 +25,13 @@ func main() {
 	)
 
 	flag.Parse()
+
+	var (
+		ctx    context.Context
+		cancel context.CancelFunc
+	)
+
+	ctx, cancel = context.WithCancel(context.Background())
 
 	clientMode := *c || *remoteAddr != ""
 
@@ -62,13 +70,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	var abortChan chan bool
 	var errChan chan error
 
 	if clientMode {
 		fmt.Printf("mode: Client(Copy this IP -> %s\n", p.LocalAddr.AddrPort().String())
 
-		errChan, err = p.StartClient(*remoteAddr)
+		errChan, err = p.StartClient(ctx, *remoteAddr)
 
 		if err != nil {
 			log.Fatal(err)
@@ -77,7 +84,7 @@ func main() {
 	} else if *s || !*s && !*c {
 		// フラグが指定されなかった場合はサーバーモードで起動
 		fmt.Printf("mode: Server(You use th123 port:%d)\n", p.LocalAddr.Port)
-		errChan, err = p.StartServer(*serverPort)
+		errChan, err = p.StartServer(ctx, *serverPort)
 		if err != nil {
 			log.Fatal(err)
 			os.Exit(1)
@@ -113,13 +120,15 @@ func main() {
 loop:
 	for {
 		select {
-		case <-abortChan:
+		case <-ctx.Done():
 			break loop
 		case err := <-errChan:
+			cancel()
 			log.Fatal(err)
 			os.Exit(1)
 		case str := <-runeChan:
 			if str == "q" {
+				cancel()
 				break loop
 			}
 		}
