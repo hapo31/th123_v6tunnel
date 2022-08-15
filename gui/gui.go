@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net"
@@ -42,7 +43,14 @@ func main() {
 		serverAddrLe *walk.LineEdit
 		statusBar    *walk.StatusBarItem
 		db           *walk.DataBinder
+		modeRadioGb  *walk.GroupBox
 	)
+
+	var (
+		ctx    context.Context
+		cancel context.CancelFunc
+	)
+	proxyStart := false
 
 	var mw *MyMainWindow
 	mwCfg := &MainWindow{
@@ -52,6 +60,7 @@ func main() {
 			AssignTo:   &db,
 			Name:       "values",
 			DataSource: values,
+			AutoSubmit: true,
 		},
 		Layout: VBox{
 			Alignment: AlignHNearVNear,
@@ -67,12 +76,14 @@ func main() {
 			VSplitter{
 				Children: []Widget{
 					GroupBox{
+						AssignTo:  &modeRadioGb,
 						Title:     "モード",
 						Layout:    HBox{},
 						MaxSize:   Size{Height: 5},
 						Alignment: AlignHCenterVNear,
 						DataBinder: DataBinder{
 							DataSource: values,
+							AutoSubmit: true,
 						},
 						Children: []Widget{
 							RadioButtonGroup{
@@ -83,7 +94,8 @@ func main() {
 										Text:  "サーバー",
 										Value: "server",
 										OnClicked: func() {
-											submitButton.SetText("接続を待つ")
+											values.Mode = "server"
+											changeButtonTextByMode(submitButton, "server", false)
 											serverGb.SetVisible(true)
 											clientGb.SetVisible(false)
 										},
@@ -93,6 +105,8 @@ func main() {
 										Text:  "クライアント",
 										Value: "client",
 										OnClicked: func() {
+											values.Mode = "client"
+											changeButtonTextByMode(submitButton, "client", false)
 											submitButton.SetText("接続する")
 											serverGb.SetVisible(false)
 											clientGb.SetVisible(true)
@@ -106,11 +120,12 @@ func main() {
 						AssignTo: &serverGb,
 						Layout: Grid{
 							Columns: 3,
-							Margins: Margins{10, 10, 10, 10},
+							Margins: Margins{Left: 10, Top: 10, Right: 10, Bottom: 10},
 						},
 						Title: "サーバー設定",
 						DataBinder: DataBinder{
 							DataSource: values,
+							AutoSubmit: true,
 						},
 						Children: []Widget{
 							Label{
@@ -152,7 +167,7 @@ func main() {
 						AssignTo: &clientGb,
 						Layout: Grid{
 							Columns: 3,
-							Margins: Margins{10, 10, 10, 10},
+							Margins: Margins{Left: 10, Top: 10, Right: 10, Bottom: 10},
 						},
 						Visible: values.Mode == "client",
 						Title:   "クライアント設定",
@@ -215,8 +230,41 @@ func main() {
 						AssignTo: &submitButton,
 						Text:     "接続を待つ",
 						OnClicked: func() {
-							db.Submit()
-							walk.MsgBox(mw, "Test", valueToStr(values), walk.MsgBoxIconInformation)
+							fmt.Printf("%+v\n", values)
+							if !proxyStart {
+								proxyStart = true
+								ctx, cancel = context.WithCancel((context.Background()))
+
+								go func() {
+									modeRadioGb.SetEnabled(false)
+									defer modeRadioGb.SetEnabled(true)
+									errChan, err := startProxy(ctx, values)
+									if err != nil {
+										walk.MsgBox(*mw, "Error", fmt.Sprintf("エラーが発生しました。\n%s", err.Error()), walk.MsgBoxIconError)
+										return
+									}
+
+									changeButtonTextByMode(submitButton, values.Mode, true)
+									defer changeButtonTextByMode(submitButton, values.Mode, false)
+
+									changeStatusText(statusBar, values.Mode, true)
+									defer changeStatusText(statusBar, values.Mode, false)
+
+									for {
+										select {
+										case <-ctx.Done():
+											return
+										case err := <-errChan:
+											walk.MsgBox(*mw, "Error", fmt.Sprintf("エラーが発生しました。\n%s", err.Error()), walk.MsgBoxIconError)
+											return
+										}
+									}
+
+								}()
+							} else {
+								proxyStart = false
+								cancel()
+							}
 						},
 					},
 				},
@@ -232,14 +280,20 @@ func main() {
 	mw.Run()
 }
 
-func valueToStr(v *Values) string {
-	s := fmt.Sprintf("Mode: %s\n", v.Mode)
-	s += fmt.Sprintf("ClientPort:%d\n", v.ClientPort)
-	s += fmt.Sprintf("ServerPort:%d\n", v.ServerPort)
-	s += fmt.Sprintf("ClientAddr:%s\n", v.ClientAddr)
-	s += fmt.Sprintf("RemoteAddr:%s\n", v.RemoteAddr)
+func startProxy(context context.Context, values *Values) (chan error, error) {
 
-	return s
+	var clientAddr string
+	if values.ClientAddr == "" {
+		clientAddr = fmt.Sprintf("[::1]:%d", values.ClientPort)
+	} else {
+		clientAddr = values.ClientAddr
+	}
+
+	if values.Mode == "client" {
+		return StartClient(context, clientAddr, values.RemoteAddr)
+	} else {
+		return StartServer(context, clientAddr, values.ServerPort)
+	}
 }
 
 func createMainWindow(mwCfg *MainWindow, mw **MyMainWindow) (*MyMainWindow, error) {
@@ -263,6 +317,34 @@ func createMainWindow(mwCfg *MainWindow, mw **MyMainWindow) (*MyMainWindow, erro
 	return *mw, nil
 }
 
-// func isGlobalIPAddr(ip* net.IP) {
-// 	if ip[0]
-// }
+func changeButtonTextByMode(btn *walk.PushButton, mode string, startProxy bool) {
+	if mode == "server" {
+		if startProxy {
+			btn.SetText("接続待ちを解除")
+		} else {
+			btn.SetText("接続を待つ")
+		}
+	} else {
+		if startProxy {
+			btn.SetText("接続待ちを解除")
+		} else {
+			btn.SetText("接続する")
+		}
+	}
+}
+
+func changeStatusText(statusBar *walk.StatusBarItem, mode string, startProxy bool) {
+	if mode == "server" {
+		if startProxy {
+			statusBar.SetText("接続待ち中...")
+		} else {
+			statusBar.SetText("")
+		}
+	} else {
+		if startProxy {
+			statusBar.SetText("クライアントに接続中...")
+		} else {
+			statusBar.SetText("")
+		}
+	}
+}
