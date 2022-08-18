@@ -95,28 +95,23 @@ func main() {
 
 	}
 
-	tty, err := tty.Open()
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	defer tty.Close()
-
 	runeChan := make(chan string)
 	waitChan := make(chan bool)
-
-	go func() {
-		println("> (type q was quit.)")
-		for {
-			r, err := tty.ReadRune()
-			if err != nil {
-				log.Fatal(err)
+	tty, err := tty.Open()
+	if err == nil {
+		go func() {
+			defer tty.Close()
+			println("> (type q was quit.)")
+			for {
+				r, err := tty.ReadRune()
+				if err != nil {
+					log.Fatal(err)
+				}
+				runeChan <- string(r)
+				<-waitChan
 			}
-			runeChan <- string(r)
-			<-waitChan
-		}
-	}()
-
+		}()
+	}
 loop:
 	for {
 		select {
