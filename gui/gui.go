@@ -206,28 +206,8 @@ func main() {
 						Text:     "接続情報をコピー",
 						OnClicked: func() {
 							db.Submit()
-							if values.Mode == "server" {
-								var ipAddr string
-								first := false
-								addrs, _ := net.InterfaceAddrs()
-
-								for _, add := range addrs {
-									networkIp, ok := add.(*net.IPNet)
-									if ok && !networkIp.IP.IsLoopback() && networkIp.IP.To4() == nil && networkIp.IP.To16() != nil {
-										if first {
-											fmt.Println(add)
-											ipAddr = strings.Split(add.String(), "/")[0]
-											break
-										}
-										first = true
-									}
-								}
-								addr := fmt.Sprintf("[%s]:%d", ipAddr, values.ServerPort)
-								walk.Clipboard().SetText(addr)
-							} else {
-								addr := fmt.Sprintf("127.0.0.1:%d", values.ClientPort)
-								walk.Clipboard().SetText(addr)
-							}
+							addr := createClipboardText(values)
+							walk.Clipboard().SetText(addr)
 							statusBar.SetText("接続情報をクリップボードにコピーしました。")
 						},
 					},
@@ -352,4 +332,28 @@ func changeStatusText(statusBar *walk.StatusBarItem, mode string, startProxy boo
 			statusBar.SetText("")
 		}
 	}
+}
+
+func createClipboardText(values *Values) (addr string) {
+	if values.Mode == "server" {
+		var ipAddr string
+		first := false
+		addrs, _ := net.InterfaceAddrs()
+
+		for _, add := range addrs {
+			networkIp, ok := add.(*net.IPNet)
+			if ok && !networkIp.IP.IsLoopback() && networkIp.IP.To4() == nil && networkIp.IP.To16() != nil {
+				if first {
+					fmt.Println(add)
+					ipAddr = strings.Split(add.String(), "/")[0]
+					break
+				}
+				first = true
+			}
+		}
+		addr = fmt.Sprintf("[%s]:%d", ipAddr, values.ServerPort)
+	} else {
+		addr = fmt.Sprintf("127.0.0.1:%d", values.ClientPort)
+	}
+	return addr
 }
