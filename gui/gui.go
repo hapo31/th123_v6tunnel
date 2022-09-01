@@ -269,7 +269,7 @@ func startProxy(context context.Context, values *Values) (chan error, error) {
 
 	var clientAddr string
 	if values.ClientAddr == "" {
-		clientAddr = fmt.Sprintf("[::1]:%d", values.ClientPort)
+		clientAddr = fmt.Sprintf("127.0.0.1:%d", values.ClientPort)
 	} else {
 		clientAddr = values.ClientAddr
 	}
