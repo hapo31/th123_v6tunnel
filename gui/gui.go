@@ -178,7 +178,7 @@ func main() {
 						Children: []Widget{
 							Label{
 								ColumnSpan: 3,
-								Text:       "接続先のIPアドレス",
+								Text:       "接続先のアドレス",
 							},
 							LineEdit{
 								AssignTo:   &serverAddrLe,
