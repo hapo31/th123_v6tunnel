@@ -28,8 +28,8 @@ func main() {
 
 	values := &Values{
 		Mode:       "server",
-		ClientPort: 10800,
-		ServerPort: 10801,
+		ClientPort: 10803,
+		ServerPort: 10800,
 		RemoteAddr: "",
 		ClientAddr: "",
 	}
