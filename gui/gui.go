@@ -26,6 +26,16 @@ type Values struct {
 
 func main() {
 
+	err := runFakeServer()
+
+	if err != nil {
+		walk.MsgBox(nil, "Error", fmt.Sprintf(`
+アプリ起動時にエラーが発生しました。
+お手数ですが、この画面の内容を Win + Shift + Sキーを押してスクリーンショットを保存し、
+開発者に問い合わせてください。
+%s`, err.Error()), walk.MsgBoxIconError)
+	}
+
 	values := &Values{
 		Mode:       "server",
 		ClientPort: 10803,
@@ -256,13 +266,33 @@ func main() {
 			},
 		},
 	}
-	mw, err := createMainWindow(mwCfg, &mw)
+	mw, err = createMainWindow(mwCfg, &mw)
 
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	mw.Run()
+}
+
+func runFakeServer() error {
+	var err error = nil
+	// サーバーを立ててすぐに閉じることでファイアウォールの設定を出現させる。
+	// 一度許可すれば以降は出ないはず
+	port := 18888
+	for port <= 25565 {
+		addr, _ := net.ResolveUDPAddr("udp", fmt.Sprintf("0.0.0.0:%d", port))
+		conn, err_ := net.ListenUDP("udp", addr)
+		if err != nil {
+			err = err_
+			port += 1
+			continue
+		}
+		defer conn.Close()
+		break
+	}
+
+	return err
 }
 
 func startProxy(context context.Context, values *Values) (chan error, error) {
